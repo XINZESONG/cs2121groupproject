@@ -6,9 +6,10 @@
 .def temp1 = r20 
 .def temp2 = r21
 .def flag=r22
-.def display1=r23
-.def STN = r24
-.def temp3 =r25
+.def display1=r24
+.def STN = r25
+.def temp3 =r23
+.def input = r26			;change speed
 .equ PORTLDIR = 0xF0        ; PH7-4: output, PH3-0, input
 .equ INITCOLMASK = 0xEF     ; scan from the rightmost column,
 .equ INITROWMASK = 0x01     ; scan from the top row
@@ -17,9 +18,9 @@
 .macro clear
 ldi YL, low(@0) ; load the memory address to Y pointer
 ldi YH, high(@0)
-clr temp ; set temp to 0
-st Y+, temp ; clear the two bytes at @0 in SRAM
-st Y, temp
+clr temp3 ; set temp to 0
+st Y+, temp3 ; clear the two bytes at @0 in SRAM
+st Y, temp3
 .endmacro
 
 .macro do_lcd_command
@@ -44,8 +45,32 @@ st Y, temp
 .endmacro
 
 .dseg
+DebounceCounter:
+	.byte 2
+              ; Two-byte counter for counting seconds.   
+TC:	
+	.byte 2 
+
+TTime:
+	.byte 10
+STime:
+	.byte 1
+Zer:
+	.byte 1
 .cseg
-.org 0
+
+.org 0x0000
+	jmp RESET
+.org INT0addr
+	jmp PB_0
+.org INT1addr
+	jmp PB_1
+.org OVF0addr
+	jmp Timer0OVF	; Jump to the interrupt handler for
+	jmp DEFAULT		; default service for all other interrupts.
+
+DEFAULT: reti		; no service
+					; continued
 jmp reset
 
 RESET:
@@ -104,9 +129,6 @@ RESET:
 	clr display1
 	ldi flag,  30
 	rjmp read ; jump to main program
-
-halt:
-	rjmp halt
 
 read:
     ldi cmask, INITCOLMASK  ; initial column mask
@@ -189,12 +211,12 @@ convert:
 	cpi display1, 0
 	breq mov1
 	cpi temp1, 0
-	breq Tletters1    ;put A-I
+	breq Tletters1    ;put A-I 1
 	cpi temp1, 1
-	breq Tletters2		;put J-R
-	cpi temp1, 2        ;put S-Z
+	breq Tletters2		;put J-R 2
+	cpi temp1, 2        ;put S-Z 3
 	breq Tletters3
-
+	jmp ERM
 	mov1:
 	mov display1, temp1		; mov temp1 to dispaly1
 	mov STN, temp1
@@ -282,6 +304,29 @@ debounce1:
 	do_lcd_letters ':'
 	rjmp read
 
+ERM:
+	do_lcd_command 0b00000001 ; clear display
+	do_lcd_letters 'I'
+	do_lcd_letters 'n'
+	do_lcd_letters 'c'
+	do_lcd_letters 'o'
+	do_lcd_letters 'r'
+	do_lcd_letters 'r'
+	do_lcd_letters 'e'
+	do_lcd_letters 'c'
+	do_lcd_letters 't'
+	debounce8:
+	rcall sleep_5ms
+	dec flag
+	brne debounce8
+	dec temp3
+	rjmp NameFun
+;=======================================================================================================PART B============================================
+
+
+
+
+
 readtime:
     ldi cmask, INITCOLMASK  ; initial column mask
     clr col                 ; initial column
@@ -323,6 +368,9 @@ convert1:
     lsl temp1
     add temp1, row
     add temp1, col          ; temp1 = row*3 + col
+//
+	;subi  temp1, -1       ;   0->1 load to port
+//
     subi temp1, -49
     jmp convert_end1
 letters1:
@@ -385,7 +433,7 @@ FinFun:
 	rcall sleep_5ms
 	dec flag
 	brne debounce6
-	jmp end
+	jmp motorFUN
 StopTimeFun:
 	do_lcd_command 0b00000001 ; clear display
 	do_lcd_letters 'S'
@@ -402,6 +450,162 @@ StopTimeFun:
 	dec flag
 	brne debounce5
 	rjmp readtime
+
+
+;============================================motor===================================================================
+
+motorFun:
+	clr temp3
+	clr flag
+	clr STN
+	clr display1
+	ldi input, 60
+	main:
+	ldi temp3, (1<<PE4)		;labeled PE2 acctully PE4 
+	out DDRE, temp3
+	ser temp3
+	sts OCR3BL, temp3
+	clr temp3
+	sts OCR3BH, temp3
+	ldi temp3, (1 << ISC21 | 1 << ISC11 | 1 << ISC01)      ; set INT2 as falling-
+    sts EICRA, temp3             ; edge triggered interrupt
+    in temp3, EIMSK              ; enable INT2
+    ori temp3, (1<<INT2 | 1<<INT1 | 1<<INT0)
+    out EIMSK, temp3
+	;set timer interrupt
+	ldi temp3, (1<< WGM30)|(1<<COM3B1) ; set the Timer3 to Phase Correct PWM mode.
+	sts TCCR3A, temp3
+	ldi temp3, (1 << CS32)
+	sts TCCR3B, temp3		; Prescaling value=8
+	
+	clr temp3
+	out TCCR0A, temp3
+	ldi temp3, (1<<CS01)
+	out TCCR0B, temp3		; Prescaling value=8
+	ldi temp3, 1<<TOIE0		; Enable timeroverflow flag
+	sts TIMSK0, temp3	
+	sts OCR3BH,input
+	sts OCR3BL,input
+	sts Zer, input
+	sei						; Enable global interrupt
+loop:
+	rjmp loop
+
+PB_0:
+	cpi flag,0	; Check if the DebounceFlag is enabled
+	breq DecreaseSpeed
+	reti	
+DecreaseSpeed:
+	ldi flag,1
+	cpi input, 0
+	breq return0
+	ldi input, 0
+return0:
+	reti
+
+PB_1:
+	cpi flag,0	; Check if the DebounceFlag is enabled
+	breq DecreaseSpeed
+	reti
+
+Timer0OVF:
+
+	in temp3, SREG
+	push temp3			; Prologue starts.
+	push YH				; Save all conflict registers in the prologue.
+	push YL
+	push r25
+	push r24
+	// Update Debounce Flag here
+	lds R24,DebounceCounter
+	lds R25,DebounceCounter+1
+	adiw r25:r24,1;
+	cpi r24, low(1700)		; We set the debounce rate to ~200ms
+	ldi temp3,high(1700)
+	cpc r25, temp3
+	breq SetDebounceFlag
+	sts DebounceCounter,r24
+	sts DebounceCounter+1,r25
+	rjmp TimeCounter
+
+SetDebounceFlag:
+	clear DebounceCounter
+	clr flag
+
+
+TimeCounter:
+	lds r24, TC
+	lds r25, TC+1 
+	adiw r25:r24, 1
+	cpi r25, high(7812)
+	ldi temp3, low(7812)
+	cpc r24, temp3
+	brne NotaSecond
+	jmp readhash
+	N10:
+	sts OCR3BL, input
+NotaSecond:
+	sts TC, r24
+	sts TC+1, r25
+Endif:
+	pop	r24
+	pop	r25
+	pop	YL
+	pop	YH
+	pop	temp3
+	out SREG, temp3
+	reti
+
+readhash:
+    ldi cmask, INITCOLMASK  ; initial column mask
+    clr col                 ; initial column
+colloop2:
+    cpi col, 4
+    breq readhash               ; If all keys are scanned, repeat.
+    sts PORTL, cmask        ; Otherwise, scan a column.
+    ldi temp1, 0xFF         ; Slow down the scan operation.
+delay2:
+    dec temp1
+    brne delay2              ; until temp1 is zero? - delay
+    lds temp1, PINL          ; Read PORTL
+    andi temp1, ROWMASK     ; Get the keypad output value
+    cpi temp1, 0xF          ; Check if any row is low
+    breq nextcol2            ; if not - switch to next column
+                            ; If yes, find which row is low
+    ldi rmask, INITROWMASK  ; initialize for row check
+    clr row
+rowloop2:
+    cpi row, 4              ; is row already 4?
+    breq nextcol2            ; the row scan is over - next column
+    mov temp2, temp1
+    and temp2, rmask        ; check un-masked bit
+    breq convert2            ; if bit is clear, the key is pressed
+    inc row                 ; else move to the next row
+    lsl rmask
+    jmp rowloop2
+nextcol2:                    ; if row scan is over
+     lsl cmask
+     inc col                ; increase col value
+     jmp colloop2            ; go to the next column
+convert2:
+    cpi row, 3             ; If the pressed key is in col 3
+    breq symbols2            ; we have letter
+	jmp N10
+symbols2:
+    cpi col, 2
+	breq clearS
+	jmp N9
+	clearS:
+		cpi input, 0
+		breq inc1
+		ldi input, 0          ; if not we have hash
+		jmp N9
+		inc1:
+		ldi input, 60
+	N9:
+    jmp N10
+
+
 
 end:
 	rjmp end

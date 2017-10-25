@@ -10,6 +10,7 @@
 .def STN = r25
 .def temp3 =r23
 .def input = r26			;change speed
+.def SC = r31
 .equ PORTLDIR = 0xF0        ; PH7-4: output, PH3-0, input
 .equ INITCOLMASK = 0xEF     ; scan from the rightmost column,
 .equ INITROWMASK = 0x01     ; scan from the top row
@@ -324,7 +325,7 @@ ERM:
 ;=======================================================================================================PART B============================================
 
 
-
+ ;input, display1, SC
 
 
 readtime:

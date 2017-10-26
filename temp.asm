@@ -471,15 +471,14 @@ motorFun:
 	st X, temp3
 	ldi XL, low(Ttime)
 	ldi XH, high(Ttime)
-	;mov r16, STN		;how many station number
 
 motorFun0:
 	clr temp3
 	clr flag
 	clr STN
 	clr display1
-	mov r17, r14
-	cpi r17, 1			;if r14 = 1, count stop time
+	mov STN, r14
+	cpi STN, 1			;if r14 = 1, count stop time
 	breq stoptime
 	
 	ld SC, X+		;SC = travel time
@@ -558,8 +557,6 @@ SetDebounceFlag:
 	clr flag
 
 TimeCounter:
-	jmp readhash
-	N14:
 	lds r24, TC
 	lds r25, TC+1 
 	adiw r25:r24, 1
@@ -567,7 +564,7 @@ TimeCounter:
 	ldi temp3, low(7812)
 	cpc r24, temp3
 	brne NotaSecond
-	
+	;jmp readhash
 
 	N10:
 		clear TC
@@ -575,7 +572,7 @@ TimeCounter:
 		subi SC, 1
 		cpi SC, 0
 		breq endcountingtime
-		N13:
+
 		sts OCR3BL, input		;SC??
 		rjmp Endif
 
@@ -633,20 +630,20 @@ nextcol2:                    ; if row scan is over
 convert2:
     cpi row, 3             ; If the pressed key is in col 3
     breq symbols2            ; we have letter
-	jmp N14
+	jmp N10
 symbols2:
     cpi col, 2
 	breq clearS
-	jmp N14
+	jmp N9
 	clearS:
 		cpi input, 0
 		breq inc1
 		ldi input, 0          ; if not we have hash
-		jmp N13
+		jmp N9
 		inc1:
 		ldi input, 60
-		sts OCR3BL, input
-		jmp N14
+	N9:
+    jmp N10
 
 
 

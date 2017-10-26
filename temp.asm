@@ -15,6 +15,7 @@
 .equ INITCOLMASK = 0xEF     ; scan from the rightmost column,
 .equ INITROWMASK = 0x01     ; scan from the top row
 .equ ROWMASK = 0x0F         ; for obtaining input from Port L
+.equ PATTERN = 0x00000011
 
 .macro clear
 ldi YL, low(@0) ; load the memory address to Y pointer
@@ -55,8 +56,8 @@ st X, temp3
 DebounceCounter:	.byte 2              
 TC:					.byte 2		; Two-byte counter for counting seconds.   
 TTime:				.byte 10	; travel time
-STime:				.byte 1		; stop time
 Zer:				.byte 1
+LEDCounter:			.byte 2
 
 .cseg
 
@@ -88,9 +89,11 @@ RESET:
 	ser r16
 	out DDRF, r16
 	out DDRA, r16
+	out DDRC, r16
 	clr r16
 	out PORTF, r16
 	out PORTA, r16
+	out PORTC, r16
 
 	do_lcd_command 0b00111000 ; 2x5x7
 	rcall sleep_5ms
@@ -490,9 +493,11 @@ motorFun0:
 
 	stoptime:
 		mov SC, r15
+		ldi input, 1
+		mov r13, input
 		ldi input, 0
 		mov r14, input
-
+		
 	main:
 	ldi temp3, (1<<PE4)		;labeled PE2 acctully PE4 
 	out DDRE, temp3
@@ -557,16 +562,31 @@ SetDebounceFlag:
 	clr flag
 
 TimeCounter:
+	;clr temp3
+	;mov r12, temp3
 	lds r24, TC
 	lds r25, TC+1 
 	adiw r25:r24, 1
-	cpi r25, high(7812)
-	ldi temp3, low(7812)
+	cpi r25, high(2604)
+	ldi temp3, low(2604)
 	cpc r24, temp3
 	brne NotaSecond
+	
+	clear TC
+	mov temp3, r13
+	cpi temp3, 1
+	breq blink
+	blink0:
+	mov temp3, r12
+	inc temp3
+	mov r12, temp3
+	cpi temp3, 3
+	brne ENDIF
 
 	N10:
-		clear TC
+		
+		clr temp3
+		mov r12, temp3
 		;jmp readhash
 	N11:
 		subi SC, 1
@@ -576,9 +596,19 @@ TimeCounter:
 		sts OCR3BL, input		
 		rjmp Endif
 
-	endcountingtime:		
+	endcountingtime:
+		clr STN
+		mov r13, STN		
 		jmp motorFUN0
-
+	blink:
+		ldi STN, pattern
+		out PORTC, STN
+		rcall sleep_5ms
+		rcall sleep_5ms
+		rcall sleep_5ms
+		clr STN
+		out PORTC, STN
+		rjmp blink0
 
 NotaSecond:
 	sts TC, r24

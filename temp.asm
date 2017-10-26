@@ -63,9 +63,9 @@ Zer:				.byte 1
 .org 0x0000
 	jmp RESET
 .org INT0addr
-	jmp PB_0
+	jmp PB
 .org INT1addr
-	jmp PB_1
+	jmp PB
 .org OVF0addr
 	jmp Timer0OVF	; Jump to the interrupt handler for
 	jmp DEFAULT		; default service for all other interrupts.
@@ -75,6 +75,9 @@ DEFAULT: reti		; no service
 jmp reset
 
 RESET:
+	clear Ttime		;??Ttime?????????
+	ldi XL, low(Ttime)
+	ldi XH, high(Ttime)
     ldi temp1, low(RAMEND)  ; initialize the stack
     out SPL, temp1
     ldi temp1, high(RAMEND)
@@ -130,8 +133,7 @@ RESET:
 	ldi temp3, 48
 	clr display1
 	ldi flag,  30
-	ldi XL, low(Ttime)
-	ldi XH, high(Ttime)
+
 	rjmp read ; jump to main program
 
 read:
@@ -373,8 +375,10 @@ convert1:
     add temp1, row
     add temp1, col          ; temp1 = row*3 + col
 ;=========================================================store Travel Time=====================================
-	subi  temp1, -1       
+	subi  temp1, -1    
 	st X+, temp1
+	
+	
 
 ;=========================================================store Travel Time=====================================
     subi temp1, -48
@@ -406,7 +410,7 @@ debounce3:
 	jmp readtime                ; restart the main loop
 
 TimeFun:
-	cp STN,temp3
+	cp STN, temp3
 	brlo JPST
 	jmp NT8
 	JPST:
@@ -425,7 +429,7 @@ TimeFun:
 	dec flag
 	brne debounce2
 	do_lcd_letters ':'
-	
+
 	rjmp readtime
 FinFun:
 	do_lcd_command 0b00000001 ; clear display
@@ -461,20 +465,32 @@ StopTimeFun:
 ;============================================motor===================================================================
 
 motorFun:
-	ld temp3, -X
+	ld temp3, -X		;r15: stop time
 	mov r15, temp3
 	ldi XL, low(Ttime)
 	ldi XH, high(Ttime)
-	ldi r17, 1
+	mov r16, STN		;how many station number
 
 motorFun0:
 	clr temp3
 	clr flag
 	clr STN
 	clr display1
+	mov r17, r14
+	cpi r17, 1			;if r14 = 1, count stop time
+	breq stoptime
+	
 	ld SC, X+		;SC = travel time
-	mov r16, r15	;r16 = stop time
+	cpi SC, 0
+	breq jstop
 	ldi input, 60
+	rjmp main
+	jstop: jmp stop
+
+	stoptime:
+		mov SC, r15
+		ldi input, 0
+		mov r14, input
 
 	main:
 	ldi temp3, (1<<PE4)		;labeled PE2 acctully PE4 
@@ -507,20 +523,13 @@ motorFun0:
 loop:
 	rjmp loop
 
-PB_0:
+PB:
 	cpi flag,0	; Check if the DebounceFlag is enabled
 	breq DecreaseSpeed
 	reti	
 DecreaseSpeed:
 	ldi flag,1
-	cpi input, 0
-	breq return0
-	ldi input, 0
-return0:
-	reti
-PB_1:
-	cpi flag,0	; Check if the DebounceFlag is enabled
-	breq DecreaseSpeed
+	mov r14, flag		;r14 -> ??pb??????. ????pb_0/1?flag = 1???? count stop time ?? ?????????
 	reti
 
 Timer0OVF:
@@ -558,26 +567,16 @@ TimeCounter:
 
 	N10:
 		clear TC
-		cpi r17, 1	;if r17 = 1, calculate SC
-		brne load0
 
 		subi SC, 1
 		cpi SC, 0
-		breq load0
+		breq endcountingtime
 
-		sts OCR3BL, input		;SC未完
+		sts OCR3BL, input		;SC??
 		rjmp Endif
 
-	load0:						;SC结束，开始数stop time
-		ldi input, 0
-		sts OCR3BL, input	
-		ldi r17, 0
-		subi r16, 1
-		cpi r16, 0
-		breq N12			;stop time结束，x指向下一个
-		rjmp Endif			;stop time未结束，此时应该重新开始数timecounter
-		N12:	ldi r17, 1
-				jmp motorFUN0
+	endcountingtime:		
+		jmp motorFUN0
 
 
 NotaSecond:
@@ -591,6 +590,10 @@ Endif:
 	pop	temp3
 	out SREG, temp3
 	reti
+
+stop:
+	ldi input, 0
+	sts OCR3BL, input
 
 readhash:
     ldi cmask, INITCOLMASK  ; initial column mask

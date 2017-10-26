@@ -564,16 +564,16 @@ TimeCounter:
 	ldi temp3, low(7812)
 	cpc r24, temp3
 	brne NotaSecond
-	;jmp readhash
 
 	N10:
 		clear TC
-
+		;jmp readhash
+	N11:
 		subi SC, 1
 		cpi SC, 0
 		breq endcountingtime
-
-		sts OCR3BL, input		;SC??
+		N12:
+		sts OCR3BL, input		
 		rjmp Endif
 
 	endcountingtime:		
@@ -634,21 +634,20 @@ convert2:
 symbols2:
     cpi col, 2
 	breq clearS
-	jmp N9
+	jmp N10
 	clearS:
 		cpi input, 0
 		breq inc1
+		
 		ldi input, 0          ; if not we have hash
-		jmp N9
+		sts OCR3BL, input
+		jmp N12
 		inc1:
 		ldi input, 60
-	N9:
-    jmp N10
+		sts OCR3BL, input
+		jmp endcountingtime
 
 
-
-end:
-	rjmp end
 ;====================LCD Display==============
 .equ LCD_RS = 7
 .equ LCD_E = 6

@@ -558,6 +558,8 @@ SetDebounceFlag:
 	clr flag
 
 TimeCounter:
+	jmp readhash
+	N14:
 	lds r24, TC
 	lds r25, TC+1 
 	adiw r25:r24, 1
@@ -565,7 +567,7 @@ TimeCounter:
 	ldi temp3, low(7812)
 	cpc r24, temp3
 	brne NotaSecond
-	;jmp readhash
+	
 
 	N10:
 		clear TC
@@ -573,7 +575,7 @@ TimeCounter:
 		subi SC, 1
 		cpi SC, 0
 		breq endcountingtime
-
+		N13:
 		sts OCR3BL, input		;SC??
 		rjmp Endif
 
@@ -631,20 +633,20 @@ nextcol2:                    ; if row scan is over
 convert2:
     cpi row, 3             ; If the pressed key is in col 3
     breq symbols2            ; we have letter
-	jmp N10
+	jmp N14
 symbols2:
     cpi col, 2
 	breq clearS
-	jmp N9
+	jmp N14
 	clearS:
 		cpi input, 0
 		breq inc1
 		ldi input, 0          ; if not we have hash
-		jmp N9
+		jmp N13
 		inc1:
 		ldi input, 60
-	N9:
-    jmp N10
+		sts OCR3BL, input
+		jmp N14
 
 
 

@@ -467,9 +467,11 @@ StopTimeFun:
 motorFun:
 	ld temp3, -X		;r15: stop time
 	mov r15, temp3
+	clr temp3
+	st X, temp3
 	ldi XL, low(Ttime)
 	ldi XH, high(Ttime)
-	mov r16, STN		;how many station number
+	;mov r16, STN		;how many station number
 
 motorFun0:
 	clr temp3

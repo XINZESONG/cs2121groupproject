@@ -9,12 +9,13 @@
 .def display1=r24
 .def STN = r25
 .def temp3 =r23
-.def input = r26			;change speed
-.def SC = r31
+.def input = r30			;change speed
+.def SC = r31				
 .equ PORTLDIR = 0xF0        ; PH7-4: output, PH3-0, input
 .equ INITCOLMASK = 0xEF     ; scan from the rightmost column,
 .equ INITROWMASK = 0x01     ; scan from the top row
 .equ ROWMASK = 0x0F         ; for obtaining input from Port L
+.equ PATTERN = 0x00000011
 
 .macro clear
 ldi YL, low(@0) ; load the memory address to Y pointer
@@ -23,7 +24,13 @@ clr temp3 ; set temp to 0
 st Y+, temp3 ; clear the two bytes at @0 in SRAM
 st Y, temp3
 .endmacro
-
+.macro clearX
+ldi XL, low(@0) ; load the memory address to Y pointer
+ldi XH, high(@0)
+clr temp3 ; set temp to 0
+st X+, temp3 ; clear the two bytes at @0 in SRAM
+st X, temp3
+.endmacro
 .macro do_lcd_command
 	ldi r16, @0
 	rcall lcd_command
@@ -46,26 +53,20 @@ st Y, temp3
 .endmacro
 
 .dseg
-DebounceCounter:
-	.byte 2
-              ; Two-byte counter for counting seconds.   
-TC:	
-	.byte 2 
+DebounceCounter:	.byte 2              
+TC:					.byte 2		; Two-byte counter for counting seconds.   
+TTime:				.byte 10	; travel time
+Zer:				.byte 1
+LEDCounter:			.byte 2
 
-TTime:
-	.byte 10
-STime:
-	.byte 1
-Zer:
-	.byte 1
 .cseg
 
 .org 0x0000
 	jmp RESET
 .org INT0addr
-	jmp PB_0
+	jmp PB
 .org INT1addr
-	jmp PB_1
+	jmp PB
 .org OVF0addr
 	jmp Timer0OVF	; Jump to the interrupt handler for
 	jmp DEFAULT		; default service for all other interrupts.
@@ -75,18 +76,24 @@ DEFAULT: reti		; no service
 jmp reset
 
 RESET:
+	clear Ttime		;??Ttime?????????
+	ldi XL, low(Ttime)
+	ldi XH, high(Ttime)
     ldi temp1, low(RAMEND)  ; initialize the stack
     out SPL, temp1
     ldi temp1, high(RAMEND)
     out SPH, temp1
+	
 	ldi temp1, PORTLDIR     ; PB7:4/PB3:0, out/in
     sts DDRL, temp1         ; PORTB is input
 	ser r16
 	out DDRF, r16
 	out DDRA, r16
+	out DDRC, r16
 	clr r16
 	out PORTF, r16
 	out PORTA, r16
+	out PORTC, r16
 
 	do_lcd_command 0b00111000 ; 2x5x7
 	rcall sleep_5ms
@@ -129,6 +136,7 @@ RESET:
 	ldi temp3, 48
 	clr display1
 	ldi flag,  30
+
 	rjmp read ; jump to main program
 
 read:
@@ -171,7 +179,16 @@ convert:
 	breq next1
 	cpi row, 2
 	breq spac1
+	cpi row, 3
+	breq fix10
 	jmp NameFun
+	fix10:
+		do_lcd_letters '1'
+		do_lcd_letters '0'
+		ldi display1, 9		; mov temp1 to dispaly1
+		ldi STN, 9
+		subi STN, -48
+		jmp debounce
 	spac1:
 	do_lcd_letters ' '
 	jmp debounce
@@ -181,7 +198,7 @@ convert:
 	jmp debounce
     
 	
-	NT1:                        ; If the key is not in col 3 and
+	NT1:                    ; If the key is not in col 3 and
     cpi row, 3              ; if the key is in row 3,
     breq symbols            ; we have a symbol or 0
 	jmp NT2
@@ -197,9 +214,7 @@ convert:
 		breq zero
 		jmp NT4
 		zero:
-		ldi temp1, 0
-		subi temp1, -'0' 
-		jmp convert_end
+		jmp ERMF
 		NT4:
 		ldi temp1, 35          ; if not we have hash
 		jmp convert_end
@@ -229,17 +244,22 @@ Tletters1:
 	cpi display1, 65
 	brlt apply1
 	inc display1
+	cpi display1, 74
+	breq apply1
 	do_lcd_command 0b00010000 ; keep cursor
 	do_lcd_data display1
 	jmp debounce
 	apply1:
 	ldi display1, 65
+	do_lcd_command 0b00010000 ; keep cursor
 	do_lcd_data display1
 	jmp debounce
 Tletters2:
 	cpi display1, 74
 	brlt apply2
 	inc display1
+	cpi display1, 83
+	breq apply2
 	do_lcd_command 0b00010000 ; keep cursor
 	do_lcd_data display1
 	jmp debounce
@@ -252,6 +272,8 @@ Tletters3:
 	cpi display1, 83
 	brlt apply3
 	inc display1
+	cpi display1, 91
+	breq apply4
 	do_lcd_command 0b00010000 ; keep cursor
 	do_lcd_data display1
 	jmp debounce
@@ -260,9 +282,21 @@ Tletters3:
 	ldi display1, 83
 	do_lcd_data display1
 	jmp debounce
+	apply4:
+	do_lcd_command 0b00010000
+	ldi display1, 65
+	do_lcd_data display1
+	jmp debounce
 convert_end:
 	do_lcd_data temp1
-	jmp debounce
+	do_lcd_command 0b00010000 ; keep cursor
+	debouncep:
+	rcall sleep_5ms
+	rcall sleep_5ms
+	dec flag
+	brne debouncep
+	jmp read 
+	    
 debounce:
 	rcall sleep_5ms
 	dec flag
@@ -294,6 +328,8 @@ NameFun:
 	do_lcd_letters 'i'
 	do_lcd_letters 'o'
 	do_lcd_letters 'n'
+	cpi temp3, 58
+	breq debounce1
 	do_lcd_data temp3
 
 debounce1:
@@ -304,6 +340,22 @@ debounce1:
 	do_lcd_command 0b10101000
 	do_lcd_letters ':'
 	rjmp read
+ERMF:
+	do_lcd_command 0b00000001 ; clear display
+	do_lcd_letters 'I'
+	do_lcd_letters 'n'
+	do_lcd_letters 'c'
+	do_lcd_letters 'o'
+	do_lcd_letters 'r'
+	do_lcd_letters 'r'
+	do_lcd_letters 'e'
+	do_lcd_letters 'c'
+	do_lcd_letters 't'
+	debouncel:
+	rcall sleep_5ms
+	dec flag
+	brne debouncel
+	rjmp RESET
 
 ERM:
 	do_lcd_command 0b00000001 ; clear display
@@ -369,17 +421,26 @@ convert1:
     lsl temp1
     add temp1, row
     add temp1, col          ; temp1 = row*3 + col
-//
-	;subi  temp1, -1       ;   0->1 load to port
-//
-    subi temp1, -49
+;=========================================================store Travel Time=====================================
+	subi  temp1, -1    
+	st X+, temp1
+	jmp NK1
+	NK:
+	st X+, temp1
+	jmp debounce3
+	NK1:	
+;=========================================================store Travel Time=====================================
+    subi temp1, -48
     jmp convert_end1
 letters1:
-    cpi row, 0
-	breq TimeFun
-	cpi row, 3
-	breq FinFun
-    jmp convert_end1
+	cpi row, 1
+	breq sample
+	jmp TimeFun
+	sample: 
+	ldi temp1, 10
+	do_lcd_letters '1'
+	do_lcd_letters '0'
+	jmp NK	
 symbols1:
     cpi col, 0              ; Check if we have a star
     breq star1
@@ -391,17 +452,35 @@ star1:
     ldi temp1, 42          ; set to star
     jmp convert_end
 zero1:
-    ldi temp1, 48          ; set to zero
+    jmp ERT1
 convert_end1:
 	do_lcd_data temp1
+	do_lcd_command 0b00010000 ; keep cursor
 debounce3:
 	rcall sleep_5ms
 	dec flag
 	brne debounce3
 	jmp readtime                ; restart the main loop
-
+ERT1:
+	do_lcd_command 0b00000001 ; clear display
+	do_lcd_letters 'I'
+	do_lcd_letters 'n'
+	do_lcd_letters 'c'
+	do_lcd_letters 'o'
+	do_lcd_letters 'r'
+	do_lcd_letters 'r'
+	do_lcd_letters 'e'
+	do_lcd_letters 'c'
+	do_lcd_letters 't'
+	do_lcd_letters 'Y'
+	debouncek:
+	rcall sleep_5ms
+	dec flag
+	brne debouncek
+	dec temp3
+	rjmp TimeFun
 TimeFun:
-	cp STN,temp3
+	cp STN, temp3
 	brlo JPST
 	jmp NT8
 	JPST:
@@ -414,14 +493,16 @@ TimeFun:
 	do_lcd_letters 'i'
 	do_lcd_letters 'm'
 	do_lcd_letters 'e'
+	cpi temp3, 58
+	breq debounce2
 	do_lcd_data temp3
 	debounce2:
 	rcall sleep_5ms
 	dec flag
 	brne debounce2
 	do_lcd_letters ':'
-	
 	rjmp readtime
+
 FinFun:
 	do_lcd_command 0b00000001 ; clear display
 	do_lcd_letters 'F'
@@ -435,6 +516,7 @@ FinFun:
 	dec flag
 	brne debounce6
 	jmp motorFUN
+
 StopTimeFun:
 	do_lcd_command 0b00000001 ; clear display
 	do_lcd_letters 'S'
@@ -450,17 +532,124 @@ StopTimeFun:
 	rcall sleep_5ms
 	dec flag
 	brne debounce5
-	rjmp readtime
+	rjmp readtimeT
+readtimeT:
+    ldi cmask, INITCOLMASK  ; initial column mask
+    clr col                 ; initial column
+colloopt:
+    cpi col, 4
+    breq readtimet               ; If all keys are scanned, repeat.
+    sts PORTL, cmask        ; Otherwise, scan a column.
+    ldi temp1, 0xFF         ; Slow down the scan operation.
+delayt:
+    dec temp1
+    brne delayt              ; until temp1 is zero? - delay
+    lds temp1, PINL          ; Read PORTL
+    andi temp1, ROWMASK     ; Get the keypad output value
+    cpi temp1, 0xF          ; Check if any row is low
+    breq nextcolt            ; if not - switch to next column
+                            ; If yes, find which row is low
+    ldi rmask, INITROWMASK  ; initialize for row check
+    clr row
+rowloopt:
+    cpi row, 4              ; is row already 4?
+    breq nextcolt            ; the row scan is over - next column
+    mov temp2, temp1
+    and temp2, rmask        ; check un-masked bit
+    breq convertt           ; if bit is clear, the key is pressed
+    inc row                 ; else move to the next row
+    lsl rmask
+    jmp rowloopt
+nextcolt:                    ; if row scan is over
+     lsl cmask
+     inc col                ; increase col value
+     jmp colloopt            ; go to the next column
+convertt:
+    cpi col, 3              ; If the pressed key is in col 3
+    breq letterst            ; we have letter
+                            ; If the key is not in col 3 and
+    cpi row, 3              ; if the key is in row 3,
+    breq ERT           ; we have a symbol or 0
+    mov temp1, row          ; otherwise we have a number 1-9
+    lsl temp1
+    add temp1, row
+    add temp1, col          ; temp1 = row*3 + col
+	cpi temp1, 0
+	breq ERT
+	cpi temp1, 5
+	brge ERT
+;=========================================================store Travel Time=====================================
+	subi  temp1, -1    
+	st X+, temp1
+;=========================================================store Travel Time=====================================
+    subi temp1, -48
+    jmp convert_endt
+letterst:
+	jmp finFun
+convert_endt:
+	do_lcd_data temp1
+debouncet:
+	rcall sleep_5ms
+	dec flag
+	brne debouncet
+	jmp readtimeT                ; restart the main loop
+
+ERT:
+	do_lcd_command 0b00000001 ; clear display
+	do_lcd_letters 'I'
+	do_lcd_letters 'n'
+	do_lcd_letters 'c'
+	do_lcd_letters 'o'
+	do_lcd_letters 'r'
+	do_lcd_letters 'r'
+	do_lcd_letters 'e'
+	do_lcd_letters 'c'
+	do_lcd_letters 't'
+	do_lcd_letters 'S'
+	debouncee:
+	rcall sleep_5ms
+	dec flag
+	brne debouncee
+	rjmp StopTimeFun
+
+
+
+
 
 
 ;============================================motor===================================================================
 
 motorFun:
+	ld temp3, -X		;r15: stop time
+	mov r15, temp3
+	clr temp3
+	st X, temp3
+	ldi XL, low(Ttime)
+	ldi XH, high(Ttime)
+
+motorFun0:
 	clr temp3
 	clr flag
 	clr STN
 	clr display1
+	mov STN, r14
+	cpi STN, 1			;if r14 = 1, count stop time
+	breq stoptime
+	
+	ld SC, X+		;SC = travel time
+	cpi SC, 0
+	breq jstop
 	ldi input, 60
+	rjmp main
+	jstop: jmp stop
+
+	stoptime:
+		mov SC, r15
+		ldi input, 1
+		mov r13, input
+		ldi input, 0
+		mov r14, input
+		
 	main:
 	ldi temp3, (1<<PE4)		;labeled PE2 acctully PE4 
 	out DDRE, temp3
@@ -492,25 +681,16 @@ motorFun:
 loop:
 	rjmp loop
 
-PB_0:
+PB:
 	cpi flag,0	; Check if the DebounceFlag is enabled
 	breq DecreaseSpeed
 	reti	
 DecreaseSpeed:
 	ldi flag,1
-	cpi input, 0
-	breq return0
-	ldi input, 0
-return0:
-	reti
-
-PB_1:
-	cpi flag,0	; Check if the DebounceFlag is enabled
-	breq DecreaseSpeed
+	mov r14, flag		;r14 -> ??pb??????. ????pb_0/1?flag = 1???? count stop time ?? ?????????
 	reti
 
 Timer0OVF:
-
 	in temp3, SREG
 	push temp3			; Prologue starts.
 	push YH				; Save all conflict registers in the prologue.
@@ -533,18 +713,55 @@ SetDebounceFlag:
 	clear DebounceCounter
 	clr flag
 
-
 TimeCounter:
+	;clr temp3
+	;mov r12, temp3
 	lds r24, TC
 	lds r25, TC+1 
 	adiw r25:r24, 1
-	cpi r25, high(7812)
-	ldi temp3, low(7812)
+	cpi r25, high(2604)
+	ldi temp3, low(2604)
 	cpc r24, temp3
 	brne NotaSecond
-	jmp readhash
+	
+	clear TC
+	mov temp3, r13
+	cpi temp3, 1
+	breq blink
+	blink0:
+	mov temp3, r12
+	inc temp3
+	mov r12, temp3
+	cpi temp3, 3
+	brne ENDIF
+
 	N10:
-	sts OCR3BL, input
+		
+		clr temp3
+		mov r12, temp3
+		;jmp readhash
+	N11:
+		subi SC, 1
+		cpi SC, 0
+		breq endcountingtime
+		N12:
+		sts OCR3BL, input		
+		rjmp Endif
+
+	endcountingtime:
+		clr STN
+		mov r13, STN		
+		jmp motorFUN0
+	blink:
+		ldi STN, pattern
+		out PORTC, STN
+		rcall sleep_5ms
+		rcall sleep_5ms
+		rcall sleep_5ms
+		clr STN
+		out PORTC, STN
+		rjmp blink0
+
 NotaSecond:
 	sts TC, r24
 	sts TC+1, r25
@@ -556,6 +773,10 @@ Endif:
 	pop	temp3
 	out SREG, temp3
 	reti
+
+stop:
+	ldi input, 0
+	sts OCR3BL, input
 
 readhash:
     ldi cmask, INITCOLMASK  ; initial column mask
@@ -595,21 +816,20 @@ convert2:
 symbols2:
     cpi col, 2
 	breq clearS
-	jmp N9
+	jmp N10
 	clearS:
 		cpi input, 0
 		breq inc1
+		
 		ldi input, 0          ; if not we have hash
-		jmp N9
+		sts OCR3BL, input
+		jmp N12
 		inc1:
 		ldi input, 60
-	N9:
-    jmp N10
+		sts OCR3BL, input
+		jmp endcountingtime
 
 
-
-end:
-	rjmp end
 ;====================LCD Display==============
 .equ LCD_RS = 7
 .equ LCD_E = 6
@@ -700,4 +920,4 @@ sleep_5ms:
 	rcall sleep_1ms
 	rcall sleep_1ms
 	rcall sleep_1ms
-	ret	
+	ret
